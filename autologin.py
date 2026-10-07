@@ -27,6 +27,8 @@ CREDENTIALS = BASE / 'credentials.json'
 ROOT = 'https://drcom.tyut.edu.cn/'
 API = 'https://drcom.tyut.edu.cn:804/eportal/portal/'
 MARKER = '# tyut-autologin managed'
+MAX_FAILURES = 3
+RETRY_PAUSE_SECONDS = 30 * 60
 # Verified campus portal IP. Resolve only this hostname locally while preserving
 # the hostname in HTTPS Host, SNI and certificate verification. No system DNS edits.
 PORTAL_IP = '219.226.127.250'
@@ -200,20 +202,29 @@ def report(message):
 
 def once():
     report('RUN_START')
+    statefile = BASE / 'retry.json'
+    state = json.loads(statefile.read_text()) if statefile.exists() else {}
     current = status()
     if str(current.get('result')) == '1':
-        report('ONLINE: no login attempted; credential file not opened.')
+        if state.get('failures') or state.get('last_attempt'):
+            write_json(statefile, {})
+            report('ONLINE: cleared stale retry state; no login attempted; credential file not opened.')
+        else:
+            report('ONLINE: no login attempted; credential file not opened.')
         return 0
     if str(current.get('result')) != '0':
         raise SafeError('Unknown online state; no login attempted')
     if not CREDENTIALS.exists():
         report('OFFLINE: credentials not configured')
         return 2
-    statefile = BASE / 'retry.json'
-    state = json.loads(statefile.read_text()) if statefile.exists() else {}
-    if state.get('failures', 0) >= 3:
-        report('PAUSED: three unconfirmed attempts; use reset-retries after review')
-        return 2
+    if state.get('failures', 0) >= MAX_FAILURES:
+        elapsed = time.time() - state.get('last_attempt', 0)
+        if elapsed < RETRY_PAUSE_SECONDS:
+            remaining = max(1, int(RETRY_PAUSE_SECONDS - elapsed))
+            report('PAUSED: retry cooldown active; retry_after_seconds=' + str(remaining))
+            return 2
+        state = {}
+        report('RETRY_COOLDOWN_EXPIRED: resuming authentication attempts')
     if time.time() - state.get('last_attempt', 0) < 300:
         return 0
     report('OFFLINE_CONFIRMED; loading portal configuration')
