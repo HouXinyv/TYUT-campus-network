@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 import unittest
-spec=importlib.util.spec_from_file_location('client',Path(__file__).with_name('autologin.py'))
+spec=importlib.util.spec_from_file_location('client',Path(__file__).resolve().parents[1] / 'autologin.py')
 c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
 class Tests(unittest.TestCase):
  def setUp(self):
